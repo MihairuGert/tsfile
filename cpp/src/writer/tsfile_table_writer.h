@@ -19,10 +19,10 @@
 #ifndef WRITER_TSFILE_TABLE_WRITER_H
 #define WRITER_TSFILE_TABLE_WRITER_H
 
+#include "file/restorable_tsfile_io_writer.h"
 #include "writer/tsfile_writer.h"
 
 namespace storage {
-class RestorableTsFileIOWriter;
 
 /**
  * @brief Facilitates writing structured table data into a TsFile with a
@@ -80,6 +80,15 @@ class TsFileTableWriter {
         storage::RestorableTsFileIOWriter* restorable_writer,
         uint64_t memory_threshold = 128 * 1024 * 1024);
 
+    /**
+     * Constructs a TsFileTableWriter and takes ownership of the restored I/O
+     * writer. This is useful for C wrapper callers that need a single opaque
+     * handle to own the whole append pipeline.
+     */
+    explicit TsFileTableWriter(
+        std::unique_ptr<storage::RestorableTsFileIOWriter> restorable_writer,
+        uint64_t memory_threshold = 128 * 1024 * 1024);
+
     ~TsFileTableWriter();
     /**
      * Registers a table schema with the writer.
@@ -117,6 +126,7 @@ class TsFileTableWriter {
 
    private:
     std::shared_ptr<TsFileWriter> tsfile_writer_;
+    std::unique_ptr<RestorableTsFileIOWriter> owned_restorable_writer_;
     // if this TsFile only contains one table, this will be its name, otherwise,
     // it will be an empty string
     std::string exclusive_table_name_;

@@ -285,6 +285,36 @@ TsFileWriter tsfile_writer_new_with_memory_threshold(WriteFile file,
                                                      ERRNO* err_code);
 
 /**
+ * @brief Opens an existing TsFile for appending table-model data.
+ *
+ * If the TsFile is complete, its footer metadata is removed before reopening
+ * for append. If it is already incomplete, recovery is performed and writing
+ * resumes from the recovered end of file.
+ *
+ * @param pathname Existing TsFile path.
+ * @param err_code [out] E_OK(0), or check error code in errno_define_c.h.
+ * @return TsFileWriter Valid handle on success, NULL on failure.
+ *
+ * @note Call tsfile_writer_close() to release resources.
+ */
+TsFileWriter tsfile_writer_open_for_append(const char* pathname,
+                                           ERRNO* err_code);
+
+/**
+ * @brief Opens an existing TsFile for appending with a custom memory
+ * threshold.
+ *
+ * @param pathname Existing TsFile path.
+ * @param memory_threshold Auto-flush threshold in bytes.
+ * @param err_code [out] E_OK(0), or check error code in errno_define_c.h.
+ * @return TsFileWriter Valid handle on success, NULL on failure.
+ *
+ * @note Call tsfile_writer_close() to release resources.
+ */
+TsFileWriter tsfile_writer_open_for_append_with_memory_threshold(
+    const char* pathname, uint64_t memory_threshold, ERRNO* err_code);
+
+/**
  * @brief Creates a TsFileReader for reading a TsFile.
  *
  * @param pathname     Source TsFiles path. Must be a valid path.

@@ -32,6 +32,7 @@
 #include "common/tsfile_common.h"
 #include "compress/compressor_factory.h"
 #include "encoding/decoder_factory.h"
+#include "file/tsfile_io_reader.h"
 #include "utils/errno_define.h"
 
 #ifdef _WIN32
@@ -530,6 +531,56 @@ int RestorableTsFileIOWriter::open(const std::string& file_path,
     }
 
     return E_OK;
+}
+
+int RestorableTsFileIOWriter::open_for_append(const std::string& file_path) {
+    int ret = E_OK;
+    ReadFile read_file;
+    ret = read_file.open(file_path);
+    if (ret == E_OK) {
+        int64_t truncate_pos = -1;
+        {
+            TsFileIOReader io_reader;
+            ret = io_reader.init(&read_file);
+            if (ret == E_OK) {
+                TsFileMeta* tsfile_meta = io_reader.get_tsfile_meta();
+                truncate_pos =
+                    (tsfile_meta == nullptr) ? -1 : tsfile_meta->meta_offset_;
+            }
+        }
+        if (ret == E_OK) {
+            if (truncate_pos < HEADER_LEN ||
+                truncate_pos >= read_file.file_size()) {
+                ret = E_TSFILE_CORRUPTED;
+            }
+        }
+        // Opened for reading only.
+        read_file.close();
+        
+        if (ret == E_OK) {
+            const int fd = ::open(file_path.c_str(), O_RDWR);
+            if (fd < 0) {
+                ret = E_FILE_OPEN_ERR;
+            } else {
+                if (::ftruncate(fd, static_cast<off_t>(truncate_pos)) < 0) {
+                    ret = E_FILE_WRITE_ERR;
+                }
+                ::close(fd);
+            }
+        }
+    } else if (ret != E_FILE_OPEN_ERR) {
+        return ret;
+    }
+
+    /*
+     * If footer parsing fails, treat the file as incomplete/corrupted and let
+     * the existing recovery path in open(..., true) repair it.
+     */
+    if (ret != E_OK && ret != E_FILE_OPEN_ERR && ret != E_TSFILE_CORRUPTED) {
+        return ret;
+    }
+
+    return open(file_path, true);
 }
 
 int RestorableTsFileIOWriter::self_check(bool truncate_corrupted) {

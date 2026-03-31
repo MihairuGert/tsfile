@@ -19,6 +19,7 @@
 
 #include "cwrapper/tsfile_cwrapper.h"
 
+#include <file/restorable_tsfile_io_writer.h>
 #include <file/write_file.h>
 #include <reader/qds_without_timegenerator.h>
 #include <unistd.h>
@@ -175,6 +176,28 @@ TsFileWriter tsfile_writer_new_with_memory_threshold(WriteFile file,
     *err_code = common::E_OK;
     delete table_schema;
     return table_writer;
+}
+
+TsFileWriter tsfile_writer_open_for_append_with_memory_threshold(
+    const char* pathname, uint64_t memory_threshold, ERRNO* err_code) {
+    init_tsfile_config();
+    std::unique_ptr<storage::RestorableTsFileIOWriter> restorable_writer(
+        new storage::RestorableTsFileIOWriter());
+    const int ret = restorable_writer->open_for_append(pathname);
+    if (ret != common::E_OK) {
+        *err_code = ret;
+        return nullptr;
+    }
+    auto* table_writer = new storage::TsFileTableWriter(
+        std::move(restorable_writer), memory_threshold);
+    *err_code = common::E_OK;
+    return table_writer;
+}
+
+TsFileWriter tsfile_writer_open_for_append(const char* pathname,
+                                           ERRNO* err_code) {
+    return tsfile_writer_open_for_append_with_memory_threshold(
+        pathname, 128 * 1024 * 1024, err_code);
 }
 
 TsFileReader tsfile_reader_new(const char* pathname, ERRNO* err_code) {

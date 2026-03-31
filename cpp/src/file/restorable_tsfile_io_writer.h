@@ -74,6 +74,19 @@ class RestorableTsFileIOWriter : public TsFileIOWriter {
      */
     int open(const std::string& file_path, bool truncate_corrupted = true);
 
+    /**
+     * Open a TsFile for appending.
+     *
+     * If the file is a complete TsFile, its trailing metadata/footer is
+     * truncated back to the metadata offset first so the existing recovery
+     * path can continue writing. If the file is already incomplete, this falls
+     * back to open(file_path, true).
+     *
+     * @param file_path Path to the TsFile.
+     * @return E_OK on success, error code otherwise.
+     */
+    int open_for_append(const std::string& file_path);
+
     void close();
 
     bool can_write() const { return can_write_; }

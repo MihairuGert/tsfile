@@ -185,6 +185,41 @@ TEST_F(RestorableTsFileIOWriterTest, OpenCompleteFile) {
     writer.close();
 }
 
+TEST_F(RestorableTsFileIOWriterTest, OpenForAppendCompleteFile) {
+    TsFileWriter tw;
+    ASSERT_EQ(tw.open(file_name_, GetWriteCreateFlags(), 0666), E_OK);
+    tw.register_timeseries(
+        "d1",
+        MeasurementSchema("s1", FLOAT, GORILLA, CompressionType::UNCOMPRESSED));
+    TsRecord record(1, "d1");
+    record.add_point("s1", 1.0f);
+    ASSERT_EQ(tw.write_record(record), E_OK);
+    record.timestamp_ = 2;
+    ASSERT_EQ(tw.write_record(record), E_OK);
+    tw.flush();
+    tw.close();
+
+    RestorableTsFileIOWriter rw;
+    ASSERT_EQ(rw.open_for_append(file_name_), E_OK);
+    ASSERT_TRUE(rw.can_write());
+    ASSERT_NE(rw.get_tsfile_io_writer(), nullptr);
+    ASSERT_NE(rw.get_write_file(), nullptr);
+
+    TsFileWriter tw2;
+    ASSERT_EQ(tw2.init(&rw), E_OK);
+    TsRecord record2(3, "d1");
+    record2.add_point("s1", 3.0f);
+    ASSERT_EQ(tw2.write_record(record2), E_OK);
+    ASSERT_EQ(tw2.flush(), E_OK);
+    ASSERT_EQ(tw2.close(), E_OK);
+    rw.close();
+
+    TsFileTreeReader reader;
+    ASSERT_EQ(reader.open(file_name_), E_OK);
+    ASSERT_EQ(CountTreeReaderRows(reader, {"s1"}), 3);
+    reader.close();
+}
+
 TEST_F(RestorableTsFileIOWriterTest, OpenTruncatedFile) {
     TsFileWriter tw;
     ASSERT_EQ(tw.open(file_name_, GetWriteCreateFlags(), 0666), E_OK);

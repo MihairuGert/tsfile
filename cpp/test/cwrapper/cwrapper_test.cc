@@ -310,4 +310,146 @@ TEST_F(CWrapperTest, WriterFlushTabletAndReadData) {
     free(data_types);
     free_write_file(&file);
 }
+
+TEST_F(CWrapperTest, WriterAppendCompletedFileAndReadData) {
+    ERRNO code = 0;
+    const char* filename = "cwrapper_append_completed.tsfile";
+    remove(filename);
+
+    TableSchema schema;
+    schema.table_name = strdup("append_table");
+    schema.column_num = 2;
+    schema.column_schemas = static_cast<ColumnSchema*>(
+        malloc(schema.column_num * sizeof(ColumnSchema)));
+    schema.column_schemas[0] =
+        ColumnSchema{strdup("id"), TS_DATATYPE_STRING, TAG};
+    schema.column_schemas[1] =
+        ColumnSchema{strdup("value"), TS_DATATYPE_INT64, FIELD};
+
+    char* column_names[2] = {strdup("id"), strdup("value")};
+    TSDataType data_types[2] = {TS_DATATYPE_STRING, TS_DATATYPE_INT64};
+
+    WriteFile file = write_file_new(filename, &code);
+    ASSERT_EQ(code, RET_OK);
+    TsFileWriter writer = tsfile_writer_new(file, &schema, &code);
+    ASSERT_EQ(code, RET_OK);
+
+    Tablet tablet = tablet_new(column_names, data_types, 2, 1);
+    ASSERT_EQ(tablet_add_timestamp(tablet, 0, 1), RET_OK);
+    ASSERT_EQ(
+        tablet_add_value_by_name_string_with_len(tablet, 0, "id", "device0", 7),
+        RET_OK);
+    ASSERT_EQ(tablet_add_value_by_name_int64_t(tablet, 0, "value", 100),
+              RET_OK);
+    ASSERT_EQ(tsfile_writer_write(writer, tablet), RET_OK);
+    ASSERT_EQ(tsfile_writer_close(writer), RET_OK);
+    free_tablet(&tablet);
+    free_write_file(&file);
+
+    writer = tsfile_writer_open_for_append(filename, &code);
+    ASSERT_EQ(code, RET_OK);
+    ASSERT_NE(writer, nullptr);
+
+    char* append_column_names[2] = {strdup("__level1"), strdup("value")};
+    tablet = tablet_new(append_column_names, data_types, 2, 1);
+    ASSERT_EQ(tablet_add_timestamp(tablet, 0, 2), RET_OK);
+    ASSERT_EQ(tablet_add_value_by_name_string_with_len(tablet, 0, "__level1",
+                                                       "device1", 7),
+              RET_OK);
+    ASSERT_EQ(tablet_add_value_by_name_int64_t(tablet, 0, "value", 200),
+              RET_OK);
+    ASSERT_EQ(tsfile_writer_write(writer, tablet), RET_OK);
+    ASSERT_EQ(tsfile_writer_close(writer), RET_OK);
+    free_tablet(&tablet);
+
+    TsFileReader reader = tsfile_reader_new(filename, &code);
+    ASSERT_EQ(code, RET_OK);
+    ResultSet result_set = tsfile_query_table(
+        reader, schema.table_name, append_column_names, 2, 0, 10, &code);
+    ASSERT_EQ(code, RET_OK);
+
+    int row_count = 0;
+    while (tsfile_result_set_next(result_set, &code) && code == RET_OK) {
+        row_count++;
+    }
+    ASSERT_EQ(code, RET_OK);
+    EXPECT_EQ(row_count, 2);
+
+    free_tsfile_result_set(&result_set);
+    tsfile_reader_close(reader);
+    free_table_schema(schema);
+    free(column_names[0]);
+    free(column_names[1]);
+    free(append_column_names[0]);
+    free(append_column_names[1]);
+    remove(filename);
+}
+
+TEST_F(CWrapperTest, WriterAppendCompletedFileAcrossMultipleSessions) {
+    ERRNO code = 0;
+    const char* filename = "cwrapper_append_multi_session.tsfile";
+    remove(filename);
+
+    TableSchema schema;
+    schema.table_name = strdup("append_table");
+    schema.column_num = 1;
+    schema.column_schemas = static_cast<ColumnSchema*>(
+        malloc(schema.column_num * sizeof(ColumnSchema)));
+    schema.column_schemas[0] =
+        ColumnSchema{strdup("value"), TS_DATATYPE_INT64, FIELD};
+
+    char* column_names[1] = {strdup("value")};
+    TSDataType data_types[1] = {TS_DATATYPE_INT64};
+
+    auto write_single_row = [&](int64_t timestamp, int64_t value,
+                                bool append_mode) {
+        TsFileWriter writer = nullptr;
+        WriteFile file = nullptr;
+
+        if (append_mode) {
+            writer = tsfile_writer_open_for_append(filename, &code);
+            ASSERT_EQ(code, RET_OK);
+            ASSERT_NE(writer, nullptr);
+        } else {
+            file = write_file_new(filename, &code);
+            ASSERT_EQ(code, RET_OK);
+            writer = tsfile_writer_new(file, &schema, &code);
+            ASSERT_EQ(code, RET_OK);
+        }
+
+        Tablet tablet = tablet_new(column_names, data_types, 1, 1);
+        ASSERT_EQ(tablet_add_timestamp(tablet, 0, timestamp), RET_OK);
+        ASSERT_EQ(tablet_add_value_by_name_int64_t(tablet, 0, "value", value),
+                  RET_OK);
+        ASSERT_EQ(tsfile_writer_write(writer, tablet), RET_OK);
+        ASSERT_EQ(tsfile_writer_close(writer), RET_OK);
+        free_tablet(&tablet);
+        if (file != nullptr) {
+            free_write_file(&file);
+        }
+    };
+
+    write_single_row(1, 100, false);
+    write_single_row(2, 200, true);
+    write_single_row(3, 300, true);
+
+    TsFileReader reader = tsfile_reader_new(filename, &code);
+    ASSERT_EQ(code, RET_OK);
+    ResultSet result_set = tsfile_query_table(reader, schema.table_name,
+                                              column_names, 1, 0, 10, &code);
+    ASSERT_EQ(code, RET_OK);
+
+    int row_count = 0;
+    while (tsfile_result_set_next(result_set, &code) && code == RET_OK) {
+        row_count++;
+    }
+    ASSERT_EQ(code, RET_OK);
+    EXPECT_EQ(row_count, 3);
+
+    free_tsfile_result_set(&result_set);
+    tsfile_reader_close(reader);
+    free_table_schema(schema);
+    free(column_names[0]);
+    remove(filename);
+}
 }  // namespace cwrapper

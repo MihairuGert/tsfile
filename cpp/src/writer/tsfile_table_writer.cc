@@ -43,6 +43,27 @@ TsFileTableWriter::TsFileTableWriter(
     common::g_config_value_.chunk_group_size_threshold_ = memory_threshold;
 }
 
+TsFileTableWriter::TsFileTableWriter(
+    std::unique_ptr<storage::RestorableTsFileIOWriter> restorable_writer,
+    uint64_t memory_threshold)
+    : owned_restorable_writer_(std::move(restorable_writer)),
+      error_number(common::E_OK) {
+    tsfile_writer_ = std::make_shared<TsFileWriter>();
+    error_number = tsfile_writer_->init(owned_restorable_writer_.get());
+    if (error_number != common::E_OK) {
+        return;
+    }
+    tsfile_writer_->set_generate_table_schema(false);
+    std::shared_ptr<Schema> schema =
+        owned_restorable_writer_->get_known_schema();
+    if (schema && schema->table_schema_map_.size() == 1) {
+        exclusive_table_name_ = schema->table_schema_map_.begin()->first;
+    } else {
+        exclusive_table_name_.clear();
+    }
+    common::g_config_value_.chunk_group_size_threshold_ = memory_threshold;
+}
+
 }  // namespace storage
 
 storage::TsFileTableWriter::~TsFileTableWriter() = default;

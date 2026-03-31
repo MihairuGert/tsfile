@@ -103,8 +103,20 @@ int TSMIterator::init() {
             chunk_meta_iter_++;
         }
         if (!tmp.empty()) {
-            tsm_chunk_meta_info_[chunk_group_meta_iter_.get()->device_id_] =
-                tmp;
+            auto& merged_measurements =
+                tsm_chunk_meta_info_[chunk_group_meta_iter_.get()->device_id_];
+            for (auto& measurement_entry : tmp) {
+                auto& merged_chunk_metas =
+                    merged_measurements[measurement_entry.first];
+                merged_chunk_metas.insert(merged_chunk_metas.end(),
+                                          measurement_entry.second.begin(),
+                                          measurement_entry.second.end());
+                std::sort(merged_chunk_metas.begin(), merged_chunk_metas.end(),
+                          [](ChunkMeta* a, ChunkMeta* b) {
+                              return a->offset_of_chunk_header_ <
+                                     b->offset_of_chunk_header_;
+                          });
+            }
         }
 
         chunk_group_meta_iter_++;
